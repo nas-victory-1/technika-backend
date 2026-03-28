@@ -1,33 +1,43 @@
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const asyncHandler = require('../middleware/asyncHandler');
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+const asyncHandler = require("../middleware/asyncHandler");
 
 const generateToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    expiresIn: process.env.JWT_EXPIRES_IN || "5d",
   });
 
 // @desc    Register a new user (public registration always creates a technician)
 // @route   POST /api/auth/register
 // @access  Public
 const register = asyncHandler(async (req, res) => {
-  const { name, email, password } = req.body;
+  const { firstName, lastName, phoneNumber, email, password } = req.body;
 
-  if (!name || !email || !password) {
-    return res.status(400).json({ message: 'name, email, and password are required' });
+  if (!firstName || !lastName || !phoneNumber || !email || !password) {
+    return res.status(400).json({
+      message: "First name, last name, email, and password are required",
+    });
   }
 
   const existingUser = await User.findOne({ email });
   if (existingUser) {
-    return res.status(400).json({ message: 'Email already in use' });
+    return res.status(400).json({ message: "Email already in use" });
   }
 
   // Public registration always creates a technician; role cannot be set by the user
-  const user = await User.create({ name, email, password, role: 'technician' });
+  const user = await User.create({
+    firstName,
+    lastName,
+    phoneNumber,
+    email,
+    password,
+    role: "technician",
+  });
 
   res.status(201).json({
     _id: user._id,
-    name: user.name,
+    firstName: user.firstName,
+    lastName: user.lastName,
     email: user.email,
     role: user.role,
     token: generateToken(user._id),
@@ -41,12 +51,12 @@ const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    return res.status(400).json({ message: 'email and password are required' });
+    return res.status(400).json({ message: "email and password are required" });
   }
 
-  const user = await User.findOne({ email }).select('+password');
+  const user = await User.findOne({ email }).select("+password");
   if (!user || !(await user.comparePassword(password))) {
-    return res.status(401).json({ message: 'Invalid email or password' });
+    return res.status(401).json({ message: "Invalid email or password" });
   }
 
   res.json({
