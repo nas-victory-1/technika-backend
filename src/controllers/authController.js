@@ -1,6 +1,6 @@
-const jwt = require("jsonwebtoken");
-const User = require("../models/User");
-const asyncHandler = require("../middleware/asyncHandler");
+import jwt from "jsonwebtoken";
+import User from "../models/User.js";
+import asyncHandler from "../middleware/asyncHandler.js";
 
 const generateToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -61,7 +61,8 @@ const login = asyncHandler(async (req, res) => {
 
   res.json({
     _id: user._id,
-    name: user.name,
+    firstName: user.firstName,
+    lastName: user.lastName,
     email: user.email,
     role: user.role,
     token: generateToken(user._id),
@@ -75,4 +76,44 @@ const getMe = asyncHandler(async (req, res) => {
   res.json(req.user);
 });
 
-module.exports = { register, login, getMe };
+// @desc    Request a password reset (stubbed — no email is actually sent yet)
+// @route   POST /api/auth/forgot-password
+// @access  Public
+const forgotPassword = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ message: "email is required" });
+  }
+
+  // Always return the same generic message so we don't leak which emails exist.
+  // (Real reset-token generation / email delivery can be wired in later.)
+  res.json({
+    message: "If this email exists, a reset link has been sent",
+  });
+});
+
+// @desc    Register a device token for the logged-in user (push / connected devices)
+// @route   POST /api/auth/device-token
+// @access  Private
+const registerDeviceToken = asyncHandler(async (req, res) => {
+  const { token } = req.body;
+
+  if (!token) {
+    return res.status(400).json({ message: "token is required" });
+  }
+
+  // $addToSet avoids storing duplicate tokens for the same device
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    { $addToSet: { deviceTokens: token } },
+    { new: true }
+  ).select("deviceTokens");
+
+  res.json({
+    message: "Device token registered",
+    deviceTokens: user.deviceTokens,
+  });
+});
+
+export { register, login, getMe, forgotPassword, registerDeviceToken };

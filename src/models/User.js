@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
+import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
 
 const locationSchema = new mongoose.Schema(
   {
@@ -29,24 +29,45 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
+    phoneNumber: {
+      type: String,
+      required: [true, "Phone number is required"],
+      trim: true,
+    },
     password: {
       type: String,
       required: [true, "Password is required"],
       minlength: 6,
       select: false,
     },
-    phoneNumber: {
-      type: Number,
-      required: [true, "Phone number is required"],
-    },
     role: {
       type: String,
       enum: ["admin", "technician"],
       default: "technician",
     },
+    profilePicture: {
+      type: String,
+      default: null,
+    },
+    birthDate: {
+      type: Date,
+    },
+    isOnline: {
+      type: Boolean,
+      default: false,
+    },
+    twoStepVerification: {
+      type: Boolean,
+      default: false,
+    },
     location: {
       type: locationSchema,
       default: null,
+    },
+    // Push-notification / connected-device tokens (e.g. FCM/APNs tokens)
+    deviceTokens: {
+      type: [String],
+      default: [],
     },
   },
   { timestamps: true },
@@ -61,4 +82,4 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-module.exports = mongoose.model("User", userSchema);
+export default mongoose.model("User", userSchema);

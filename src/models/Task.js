@@ -1,4 +1,13 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
+
+const taskLocationSchema = new mongoose.Schema(
+  {
+    latitude: { type: Number },
+    longitude: { type: Number },
+    address: { type: String, trim: true },
+  },
+  { _id: false }
+);
 
 const taskSchema = new mongoose.Schema(
   {
@@ -14,8 +23,8 @@ const taskSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'in_progress', 'completed'],
-      default: 'pending',
+      enum: ['pending', 'available', 'completed'],
+      default: 'available',
     },
     assignedTo: {
       type: mongoose.Schema.Types.ObjectId,
@@ -27,8 +36,27 @@ const taskSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+    location: {
+      type: taskLocationSchema,
+      default: null,
+    },
+    priority: {
+      type: String,
+      enum: ['low', 'medium', 'high'],
+      default: 'medium',
+    },
+    // Technician's note left when completing the task
+    completionNote: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    // Lifecycle timestamps used for average-completion-time calculations
+    acknowledgedAt: { type: Date }, // set when technician accepts the task (status -> pending)
+    startedAt: { type: Date },
+    completedAt: { type: Date }, // set when task is completed (status -> completed)
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model('Task', taskSchema);
+export default mongoose.model('Task', taskSchema);

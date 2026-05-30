@@ -1,11 +1,13 @@
-require("dotenv").config();
-const express = require("express");
-const rateLimit = require("express-rate-limit");
-const connectDB = require("./src/config/db");
+import "dotenv/config";
+import express from "express";
+import rateLimit from "express-rate-limit";
+import connectDB from "./src/config/db.js";
 
-const authRoutes = require("./src/routes/authRoutes");
-const userRoutes = require("./src/routes/userRoutes");
-const taskRoutes = require("./src/routes/taskRoutes");
+import authRoutes from "./src/routes/authRoutes.js";
+import userRoutes from "./src/routes/userRoutes.js";
+import taskRoutes from "./src/routes/taskRoutes.js";
+import notificationRoutes from "./src/routes/notificationRoutes.js";
+import chatRoutes from "./src/routes/chatRoutes.js";
 
 const app = express();
 
@@ -32,6 +34,8 @@ const apiLimiter = rateLimit({
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/users", apiLimiter, userRoutes);
 app.use("/api/tasks", apiLimiter, taskRoutes);
+app.use("/api/notifications", apiLimiter, notificationRoutes);
+app.use("/api/chats", apiLimiter, chatRoutes);
 
 // Health check
 app.get("/health", (req, res) => res.json({ status: "ok" }));
@@ -83,4 +87,4 @@ start().catch((err) => {
   process.exit(1);
 });
 
-module.exports = app;
+export default app;
