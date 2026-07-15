@@ -302,6 +302,32 @@ const addCompletionNote = asyncHandler(async (req, res) => {
   res.json(task);
 });
 
+// @desc    Update a task's core details (admin only)
+// @route   PUT /api/tasks/:id
+// @access  Private/Admin
+const updateTask = asyncHandler(async (req, res) => {
+  const { title, description, priority, location } = req.body;
+
+  const updates = {};
+  if (title !== undefined) updates.title = title;
+  if (description !== undefined) updates.description = description;
+  if (priority !== undefined) updates.priority = priority;
+  if (location !== undefined) updates.location = location;
+
+  const task = await Task.findByIdAndUpdate(req.params.id, updates, {
+    new: true,
+    runValidators: true,
+  })
+    .populate('assignedTo', USER_FIELDS)
+    .populate('createdBy', USER_FIELDS);
+
+  if (!task) {
+    return res.status(404).json({ message: 'Task not found' });
+  }
+
+  res.json(task);
+});
+
 // @desc    Delete a task
 // @route   DELETE /api/tasks/:id
 // @access  Private/Admin
@@ -323,5 +349,6 @@ export {
   assignTask,
   updateTaskStatus,
   addCompletionNote,
+  updateTask,
   deleteTask,
 };

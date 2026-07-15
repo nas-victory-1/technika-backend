@@ -9,6 +9,7 @@ import {
   assignTask,
   updateTaskStatus,
   addCompletionNote,
+  updateTask,
   deleteTask,
 } from '../controllers/taskController.js';
 import { protect } from '../middleware/authMiddleware.js';
@@ -29,6 +30,9 @@ router.get('/current', protect, getCurrentTask);
 
 // Get task by ID
 router.get('/:id', protect, getTaskById);
+
+// Update task core details (admin only)
+router.put('/:id', protect, authorize('admin'), updateTask);
 
 // Assign task to technician (admin only)
 router.put('/:id/assign', protect, authorize('admin'), assignTask);

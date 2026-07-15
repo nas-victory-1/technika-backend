@@ -178,6 +178,63 @@ const deleteAccount = asyncHandler(async (req, res) => {
   res.json({ message: 'Account deleted successfully' });
 });
 
+// @desc    Get a single technician by ID
+// @route   GET /api/users/:id
+// @access  Private/Admin
+const getTechnicianById = asyncHandler(async (req, res) => {
+  const technician = await User.findOne({
+    _id: req.params.id,
+    role: 'technician',
+  });
+
+  if (!technician) {
+    return res.status(404).json({ message: 'Technician not found' });
+  }
+
+  res.json(technician);
+});
+
+// @desc    Update a technician
+// @route   PUT /api/users/:id
+// @access  Private/Admin
+const updateTechnician = asyncHandler(async (req, res) => {
+  const { firstName, lastName, phoneNumber, isOnline } = req.body;
+
+  const updates = {};
+  if (firstName !== undefined) updates.firstName = firstName;
+  if (lastName !== undefined) updates.lastName = lastName;
+  if (phoneNumber !== undefined) updates.phoneNumber = phoneNumber;
+  if (isOnline !== undefined) updates.isOnline = isOnline;
+
+  const technician = await User.findOneAndUpdate(
+    { _id: req.params.id, role: 'technician' },
+    updates,
+    { new: true, runValidators: true }
+  );
+
+  if (!technician) {
+    return res.status(404).json({ message: 'Technician not found' });
+  }
+
+  res.json(technician);
+});
+
+// @desc    Delete a technician
+// @route   DELETE /api/users/:id
+// @access  Private/Admin
+const deleteTechnician = asyncHandler(async (req, res) => {
+  const technician = await User.findOneAndDelete({
+    _id: req.params.id,
+    role: 'technician',
+  });
+
+  if (!technician) {
+    return res.status(404).json({ message: 'Technician not found' });
+  }
+
+  res.json({ message: 'Technician removed' });
+});
+
 export {
   getTechnicians,
   updateLocation,
@@ -189,4 +246,7 @@ export {
   getConnectedDevices,
   removeDevice,
   deleteAccount,
+  getTechnicianById,
+  updateTechnician,
+  deleteTechnician,
 };
