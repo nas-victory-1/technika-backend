@@ -45,6 +45,18 @@ const taskSchema = new mongoose.Schema(
       enum: ['low', 'medium', 'high'],
       default: 'medium',
     },
+    // Client/company the operation is for (admin panel field)
+    companyName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    // Phone number of the person who called in the service request
+    callerPhone: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     // Technician's note left when completing the task
     completionNote: {
       type: String,

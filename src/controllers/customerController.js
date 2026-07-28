@@ -26,7 +26,8 @@ const getCustomerById = asyncHandler(async (req, res) => {
 // @route   POST /api/customers
 // @access  Private/Admin
 const createCustomer = asyncHandler(async (req, res) => {
-  const { name, location, phone } = req.body;
+  const { name, location, phone, email, city, state, country, avatar } =
+    req.body;
 
   if (!name || !location || !phone) {
     return res
@@ -34,7 +35,16 @@ const createCustomer = asyncHandler(async (req, res) => {
       .json({ message: 'name, location and phone are required' });
   }
 
-  const customer = await Customer.create({ name, location, phone });
+  const customer = await Customer.create({
+    name,
+    location,
+    phone,
+    email,
+    city,
+    state,
+    country,
+    avatar,
+  });
 
   res.status(201).json(customer);
 });
@@ -43,12 +53,18 @@ const createCustomer = asyncHandler(async (req, res) => {
 // @route   PUT /api/customers/:id
 // @access  Private/Admin
 const updateCustomer = asyncHandler(async (req, res) => {
-  const { name, location, phone } = req.body;
+  const { name, location, phone, email, city, state, country, avatar } =
+    req.body;
 
   const updates = {};
   if (name !== undefined) updates.name = name;
   if (location !== undefined) updates.location = location;
   if (phone !== undefined) updates.phone = phone;
+  if (email !== undefined) updates.email = email;
+  if (city !== undefined) updates.city = city;
+  if (state !== undefined) updates.state = state;
+  if (country !== undefined) updates.country = country;
+  if (avatar !== undefined) updates.avatar = avatar;
 
   const customer = await Customer.findByIdAndUpdate(req.params.id, updates, {
     new: true,

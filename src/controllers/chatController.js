@@ -39,16 +39,18 @@ const createOrGetChat = asyncHandler(async (req, res) => {
     participants: { $all: [req.user._id, participantId], $size: 2 },
   });
 
+  let created = false;
   if (!chat) {
     chat = await Chat.create({
       participants: [req.user._id, participantId],
     });
+    created = true;
   }
 
   await chat.populate('participants', 'firstName lastName profilePicture');
   await chat.populate('lastMessage');
 
-  res.status(201).json(chat);
+  res.status(created ? 201 : 200).json(chat);
 });
 
 // @desc    Get all messages in a chat (participants only)

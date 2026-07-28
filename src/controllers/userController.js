@@ -6,7 +6,7 @@ import asyncHandler from '../middleware/asyncHandler.js';
 // @access  Private/Admin
 const getTechnicians = asyncHandler(async (req, res) => {
   const technicians = await User.find({ role: 'technician' }).select(
-    'firstName lastName email location isOnline createdAt'
+    'firstName lastName email phoneNumber profilePicture birthDate location isOnline createdAt'
   );
   res.json(technicians);
 });
