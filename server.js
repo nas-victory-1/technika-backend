@@ -15,7 +15,7 @@ const app = express();
 
 app.set("trust proxy", 1);
 
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 app.use(
     cors({
         origin: [
@@ -37,7 +37,7 @@ const authLimiter = rateLimit({
 
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 1000, // admin dashboard polls several endpoints; 100 was too easy to hit
     standardHeaders: true,
     legacyHeaders: false,
     message: { message: "Too many requests, please try again later" },

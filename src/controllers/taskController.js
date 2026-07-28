@@ -10,7 +10,7 @@ const USER_FIELDS = 'firstName lastName email';
 // @route   POST /api/tasks
 // @access  Private/Admin
 const createTask = asyncHandler(async (req, res) => {
-  const { title, description, assignedTo, location, priority } = req.body;
+  const { title, description, assignedTo, location, priority, companyName, callerPhone } = req.body;
 
   if (!title) {
     return res.status(400).json({ message: 'title is required' });
@@ -30,6 +30,8 @@ const createTask = asyncHandler(async (req, res) => {
     createdBy: req.user._id,
     location: location || null,
     priority: priority || 'medium',
+    companyName: companyName || '',
+    callerPhone: callerPhone || '',
   });
 
   // Notify the technician if the task was assigned at creation time
@@ -306,13 +308,15 @@ const addCompletionNote = asyncHandler(async (req, res) => {
 // @route   PUT /api/tasks/:id
 // @access  Private/Admin
 const updateTask = asyncHandler(async (req, res) => {
-  const { title, description, priority, location } = req.body;
+  const { title, description, priority, location, companyName, callerPhone } = req.body;
 
   const updates = {};
   if (title !== undefined) updates.title = title;
   if (description !== undefined) updates.description = description;
   if (priority !== undefined) updates.priority = priority;
   if (location !== undefined) updates.location = location;
+  if (companyName !== undefined) updates.companyName = companyName;
+  if (callerPhone !== undefined) updates.callerPhone = callerPhone;
 
   const task = await Task.findByIdAndUpdate(req.params.id, updates, {
     new: true,

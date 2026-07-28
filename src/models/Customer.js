@@ -17,6 +17,31 @@ const customerSchema = new mongoose.Schema(
       required: [true, 'Phone number is required'],
       trim: true,
     },
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      default: '',
+    },
+    city: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    state: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    country: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    avatar: {
+      type: String,
+      default: null,
+    },
   },
   { timestamps: true }
 );
