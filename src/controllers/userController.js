@@ -42,7 +42,7 @@ const cascadeDeleteUserData = async (userId) => {
 // @access  Private/Admin
 const getTechnicians = asyncHandler(async (req, res) => {
     const technicians = await User.find({ role: "technician" }).select(
-        "firstName lastName email phoneNumber profilePicture birthDate location isOnline createdAt",
+        "firstName lastName email phoneNumber profilePicture birthDate location isOnline isActive createdAt",
     );
     res.json(technicians);
 });
@@ -241,13 +241,17 @@ const getTechnicianById = asyncHandler(async (req, res) => {
 // @route   PUT /api/users/:id
 // @access  Private/Admin
 const updateTechnician = asyncHandler(async (req, res) => {
-    const { firstName, lastName, phoneNumber, isOnline } = req.body;
+    const { firstName, lastName, phoneNumber, isOnline, isActive } = req.body;
 
     const updates = {};
     if (firstName !== undefined) updates.firstName = firstName;
     if (lastName !== undefined) updates.lastName = lastName;
     if (phoneNumber !== undefined) updates.phoneNumber = phoneNumber;
     if (isOnline !== undefined) updates.isOnline = isOnline;
+    if (isActive !== undefined) {
+        updates.isActive = isActive;
+        if (isActive === false) updates.isOnline = false;
+    }
 
     const technician = await User.findOneAndUpdate(
         { _id: req.params.id, role: "technician" },
