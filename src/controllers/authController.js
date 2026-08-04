@@ -7,6 +7,15 @@ const generateToken = (id) =>
         expiresIn: process.env.JWT_EXPIRES_IN || "5d",
     });
 
+// Short-lived token used only to carry a user through the gap between
+// "password verified" and "OTP verified" during 2FA login. It deliberately
+// cannot be used as a real auth token (protect middleware only accepts
+// tokens without a `purpose` claim doing double duty — this one is scoped).
+const generatePreAuthToken = (id) =>
+    jwt.sign({ id, purpose: "login-2fa" }, process.env.JWT_SECRET, {
+        expiresIn: "10m",
+    });
+
 // @desc    Register a new user (public registration always creates a technician)
 // @route   POST /api/auth/register
 // @access  Public
@@ -59,6 +68,17 @@ const login = asyncHandler(async (req, res) => {
     const user = await User.findOne({ email }).select("+password");
     if (!user || !(await user.comparePassword(password))) {
         return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    // 2FA accounts don't get a real token yet — password is only step one.
+    // The client must call /auth/verify-login-otp with this preAuthToken
+    // plus a code before it gets a usable session.
+    if (user.twoStepVerification) {
+        return res.json({
+            twoStepRequired: true,
+            preAuthToken: generatePreAuthToken(user._id),
+            message: "Enter the verification code to finish signing in",
+        });
     }
 
     res.json({
@@ -134,6 +154,57 @@ const verifyOtp = asyncHandler(async (req, res) => {
     res.json({ success: true, message: "Phone number verified successfully" });
 });
 
+// @desc    Complete login for accounts with two-step verification enabled.
+//          Stub: any 4-digit code is accepted, same as /verify-otp — this
+//          endpoint gates access to one specific pending login (tied to the
+//          preAuthToken), it does not add real SMS delivery. Real delivery
+//          still depends on Africa's Talking sender ID approval.
+// @route   POST /api/auth/verify-login-otp
+// @access  Public (requires a valid preAuthToken from /login)
+const verifyLoginOtp = asyncHandler(async (req, res) => {
+    const { preAuthToken, otp } = req.body;
+
+    if (!preAuthToken) {
+        return res.status(400).json({ message: "preAuthToken is required" });
+    }
+    if (!otp || otp.length !== 4) {
+        return res
+            .status(400)
+            .json({ message: "Please enter a valid 4-digit code" });
+    }
+
+    let decoded;
+    try {
+        decoded = jwt.verify(preAuthToken, process.env.JWT_SECRET);
+    } catch (err) {
+        return res.status(401).json({
+            message: "Verification session expired, please log in again",
+        });
+    }
+
+    if (decoded.purpose !== "login-2fa") {
+        return res
+            .status(401)
+            .json({ message: "Invalid verification session" });
+    }
+
+    const user = await User.findById(decoded.id);
+    if (!user) {
+        return res.status(404).json({ message: "User not found" });
+    }
+
+    // Stub: any well-formed 4-digit code is accepted (see verifyOtp above)
+    // !!Must be doneee
+    res.json({
+        _id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+        token: generateToken(user._id),
+    });
+});
+
 export {
     register,
     login,
@@ -141,4 +212,5 @@ export {
     forgotPassword,
     registerDeviceToken,
     verifyOtp,
+    verifyLoginOtp,
 };

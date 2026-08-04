@@ -24,6 +24,16 @@ const protect = asyncHandler(async (req, res, next) => {
             .json({ message: "Not authorized, token invalid or expired" });
     }
 
+    // Scoped tokens (e.g. the 2FA pre-auth token issued mid-login, before OTP
+    // verification) carry a `purpose` claim and must never be accepted as a
+    // real bearer token — otherwise 2FA could be bypassed entirely by just
+    // using the pre-auth token directly against any protected route.
+    if (decoded.purpose) {
+        return res
+            .status(401)
+            .json({ message: "Not authorized, invalid token type" });
+    }
+
     req.user = await User.findById(decoded.id).select("-password");
     if (!req.user) {
         return res

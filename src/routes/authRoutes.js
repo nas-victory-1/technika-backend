@@ -6,6 +6,7 @@ import {
     forgotPassword,
     registerDeviceToken,
     verifyOtp,
+    verifyLoginOtp,
 } from "../controllers/authController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
@@ -17,5 +18,6 @@ router.post("/forgot-password", forgotPassword); //✅
 router.get("/me", protect, getMe); //✅
 router.post("/device-token", protect, registerDeviceToken); //✅
 router.post("/verify-otp", verifyOtp);
+router.post("/verify-login-otp", verifyLoginOtp);
 
 export default router;
