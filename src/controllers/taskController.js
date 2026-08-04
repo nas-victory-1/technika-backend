@@ -327,6 +327,34 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
             .json({ message: "Not authorized to update this task" });
     }
 
+    // Technicians can only move a task forward (available -> pending ->
+    // completed), or abandon a task they've accepted back to available.
+    // Completed is terminal for them — no reopening, no re-abandoning.
+    // Admins are exempt (trusted role, may need to make manual corrections).
+    if (isTechnician) {
+        const validTransitions = {
+            available: ["pending"],
+            pending: ["completed", "available"],
+            completed: [],
+        };
+        const allowedNext = validTransitions[task.status] || [];
+
+        if (!allowedNext.includes(status)) {
+            return res.status(400).json({
+                message: `Cannot change status from "${task.status}" to "${status}"`,
+            });
+        }
+
+        // Abandoning: give the task back to the open pool for real, not just
+        // in name — assignedTo must be cleared or the atomic claim check above
+        // (`assignedTo: null`) would wrongly tell the next technician it's
+        // already taken.
+        if (task.status === "pending" && status === "available") {
+            task.assignedTo = null;
+            task.acknowledgedAt = null;
+        }
+    }
+
     // Stamp lifecycle timestamps as the task progresses.
     // pending == technician has accepted/acknowledged the task (it's now in progress).
     if (status === "pending" && !task.acknowledgedAt) {
