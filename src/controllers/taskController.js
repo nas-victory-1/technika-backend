@@ -2,9 +2,23 @@ import Task from "../models/Task.js";
 import User from "../models/User.js";
 import asyncHandler from "../middleware/asyncHandler.js";
 import { createNotification } from "./notificationController.js";
+import crypto from "crypto";
+import bcrypt from "bcrypt";
+import { sendVerificationCode } from "../utils/email.js";
 
 // Fields populated for user references on tasks (never expose `name` — model uses firstName/lastName)
 const USER_FIELDS = "firstName lastName email";
+
+// Generates a plaintext 6-digit code + its bcrypt hash. The plaintext is
+// only ever used once (to email it) and is never persisted.
+const generateVerificationCode = async () => {
+    const code = crypto.randomInt(100000, 1000000).toString(); // 6 digits, no leading-zero drop
+    const codeHash = await bcrypt.hash(code, 10);
+    return { code, codeHash };
+};
+
+const VERIFICATION_CODE_TTL_HOURS = 72;
+const MAX_VERIFICATION_ATTEMPTS = 3;
 
 // @desc    Create a new task
 // @route   POST /api/tasks
@@ -18,6 +32,7 @@ const createTask = asyncHandler(async (req, res) => {
         priority,
         companyName,
         callerPhone,
+        contactEmail,
     } = req.body;
 
     if (!title) {
@@ -43,6 +58,7 @@ const createTask = asyncHandler(async (req, res) => {
         priority: priority || "medium",
         companyName: companyName || "",
         callerPhone: callerPhone || "",
+        contactEmail: contactEmail || "",
     });
 
     // Notify the technician if the task was assigned at creation time
@@ -273,7 +289,13 @@ const assignTask = asyncHandler(async (req, res) => {
 // @access  Private (technician updates their own; admin can update any)
 const updateTaskStatus = asyncHandler(async (req, res) => {
     const { status } = req.body;
-    const allowedStatuses = ["pending", "available", "completed"];
+    const allowedStatuses = [
+        "pending",
+        "available",
+        "awaiting_verification",
+        "disputed",
+        "completed",
+    ];
 
     if (!allowedStatuses.includes(status)) {
         return res.status(400).json({
@@ -295,14 +317,24 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
     // Claiming an open task: a technician accepting an unassigned "available"
     // task both assigns it to themselves AND advances it to "pending" in one
     // atomic operation, so two technicians tapping "accept" on the same job
-    // at the same moment can't both succeed.
+    // at the same moment can't both succeed. A verification code is generated
+    // and hashed in the same update, and emailed to the on-site contact once
+    // the claim is confirmed.
     if (isTechnician && isUnclaimed && status === "pending") {
+        const { code, codeHash } = await generateVerificationCode();
+        const expiresAt = new Date(
+            Date.now() + VERIFICATION_CODE_TTL_HOURS * 60 * 60 * 1000,
+        );
+
         const claimed = await Task.findOneAndUpdate(
             { _id: req.params.id, assignedTo: null, status: "available" },
             {
                 assignedTo: req.user._id,
                 status: "pending",
                 acknowledgedAt: new Date(),
+                verificationCodeHash: codeHash,
+                verificationCodeExpiresAt: expiresAt,
+                verificationAttempts: 0,
             },
             { new: true },
         )
@@ -317,6 +349,27 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
             });
         }
 
+        // Email failure shouldn't undo a successful claim — log and move on.
+        // Admin can resend/override if the customer never received the code.
+        if (claimed.contactEmail) {
+            try {
+                await sendVerificationCode(
+                    claimed.contactEmail,
+                    code,
+                    claimed.title,
+                );
+            } catch (err) {
+                console.error(
+                    `Failed to send verification code for task ${claimed._id}:`,
+                    err.message,
+                );
+            }
+        } else {
+            console.warn(
+                `Task ${claimed._id} claimed with no contactEmail — no verification code sent`,
+            );
+        }
+
         return res.json(claimed);
     }
 
@@ -328,13 +381,17 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
     }
 
     // Technicians can only move a task forward (available -> pending ->
-    // completed), or abandon a task they've accepted back to available.
-    // Completed is terminal for them — no reopening, no re-abandoning.
-    // Admins are exempt (trusted role, may need to make manual corrections).
+    // awaiting_verification), or abandon a task they've accepted back to
+    // available. Reaching "completed" happens only through /verify (correct
+    // code entered) or /override (admin), never through a raw status PUT —
+    // that's the whole point of the verification feature. Admins are exempt
+    // (trusted role, may need to make manual corrections).
     if (isTechnician) {
         const validTransitions = {
             available: ["pending"],
-            pending: ["completed", "available"],
+            pending: ["awaiting_verification", "available"],
+            awaiting_verification: [],
+            disputed: [],
             completed: [],
         };
         const allowedNext = validTransitions[task.status] || [];
@@ -352,6 +409,9 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
         if (task.status === "pending" && status === "available") {
             task.assignedTo = null;
             task.acknowledgedAt = null;
+            task.verificationCodeHash = null;
+            task.verificationCodeExpiresAt = null;
+            task.verificationAttempts = 0;
         }
     }
 
@@ -365,6 +425,166 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
     }
 
     task.status = status;
+    await task.save();
+
+    await task.populate("assignedTo", USER_FIELDS);
+    await task.populate("createdBy", USER_FIELDS);
+
+    res.json(task);
+});
+
+// @desc    Technician submits the customer's verification code to complete a task
+// @route   PUT /api/tasks/:id/verify
+// @access  Private (technician, own task only)
+const verifyTaskCompletion = asyncHandler(async (req, res) => {
+    const { code } = req.body;
+
+    if (!code) {
+        return res.status(400).json({ message: "code is required" });
+    }
+
+    const task = await Task.findById(req.params.id);
+    if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+    }
+
+    if (
+        !task.assignedTo ||
+        task.assignedTo.toString() !== req.user._id.toString()
+    ) {
+        return res
+            .status(403)
+            .json({ message: "Not authorized to verify this task" });
+    }
+
+    if (!["pending", "awaiting_verification"].includes(task.status)) {
+        return res.status(400).json({
+            message: `Cannot verify a task with status "${task.status}"`,
+        });
+    }
+
+    if (!task.verificationCodeHash) {
+        return res
+            .status(400)
+            .json({ message: "No verification code exists for this task" });
+    }
+
+    if (
+        task.verificationCodeExpiresAt &&
+        task.verificationCodeExpiresAt < new Date()
+    ) {
+        return res.status(400).json({
+            message:
+                "Verification code has expired. Contact an admin to resend or override.",
+        });
+    }
+
+    if (task.verificationAttempts >= MAX_VERIFICATION_ATTEMPTS) {
+        return res.status(429).json({
+            message:
+                "Too many failed attempts. Contact an admin to resend or override.",
+        });
+    }
+
+    const isMatch = await bcrypt.compare(code, task.verificationCodeHash);
+
+    if (!isMatch) {
+        task.verificationAttempts += 1;
+        await task.save();
+        return res.status(400).json({
+            message: "Incorrect code",
+            attemptsRemaining: Math.max(
+                0,
+                MAX_VERIFICATION_ATTEMPTS - task.verificationAttempts,
+            ),
+        });
+    }
+
+    task.status = "completed";
+    task.completedAt = new Date();
+    task.verificationCodeHash = null; // burn the code, one-time use
+    await task.save();
+
+    await task.populate("assignedTo", USER_FIELDS);
+    await task.populate("createdBy", USER_FIELDS);
+
+    res.json(task);
+});
+
+// @desc    Technician flags a task as disputed (couldn't get the code from customer)
+// @route   PUT /api/tasks/:id/dispute
+// @access  Private (technician, own task only)
+const disputeTask = asyncHandler(async (req, res) => {
+    const { disputeReason } = req.body;
+
+    if (!disputeReason || !disputeReason.trim()) {
+        return res.status(400).json({ message: "disputeReason is required" });
+    }
+
+    const task = await Task.findById(req.params.id);
+    if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+    }
+
+    if (
+        !task.assignedTo ||
+        task.assignedTo.toString() !== req.user._id.toString()
+    ) {
+        return res
+            .status(403)
+            .json({ message: "Not authorized to update this task" });
+    }
+
+    if (!["pending", "awaiting_verification"].includes(task.status)) {
+        return res.status(400).json({
+            message: `Cannot dispute a task with status "${task.status}"`,
+        });
+    }
+
+    task.status = "disputed";
+    task.disputeReason = disputeReason.trim();
+    await task.save();
+
+    // Let admins know a task needs manual review
+    const admins = await User.find({ role: "admin" }).select("_id");
+    await Promise.all(
+        admins.map((admin) =>
+            createNotification({
+                userId: admin._id,
+                title: "Task disputed",
+                message: `"${task.title}" was flagged: ${task.disputeReason}`,
+                type: "task_disputed",
+                relatedTask: task._id,
+            }),
+        ),
+    );
+
+    await task.populate("assignedTo", USER_FIELDS);
+    await task.populate("createdBy", USER_FIELDS);
+
+    res.json(task);
+});
+
+// @desc    Admin manually completes a disputed or stuck task, bypassing the code
+// @route   PUT /api/tasks/:id/override
+// @access  Private/Admin
+const overrideTaskCompletion = asyncHandler(async (req, res) => {
+    const task = await Task.findById(req.params.id);
+    if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+    }
+
+    if (
+        !["disputed", "pending", "awaiting_verification"].includes(task.status)
+    ) {
+        return res.status(400).json({
+            message: `Cannot override a task with status "${task.status}"`,
+        });
+    }
+
+    task.status = "completed";
+    task.completedAt = new Date();
+    task.verificationCodeHash = null;
     await task.save();
 
     await task.populate("assignedTo", USER_FIELDS);
@@ -412,8 +632,15 @@ const addCompletionNote = asyncHandler(async (req, res) => {
 // @route   PUT /api/tasks/:id
 // @access  Private/Admin
 const updateTask = asyncHandler(async (req, res) => {
-    const { title, description, priority, location, companyName, callerPhone } =
-        req.body;
+    const {
+        title,
+        description,
+        priority,
+        location,
+        companyName,
+        callerPhone,
+        contactEmail,
+    } = req.body;
 
     const updates = {};
     if (title !== undefined) updates.title = title;
@@ -422,6 +649,7 @@ const updateTask = asyncHandler(async (req, res) => {
     if (location !== undefined) updates.location = location;
     if (companyName !== undefined) updates.companyName = companyName;
     if (callerPhone !== undefined) updates.callerPhone = callerPhone;
+    if (contactEmail !== undefined) updates.contactEmail = contactEmail;
 
     const task = await Task.findByIdAndUpdate(req.params.id, updates, {
         new: true,
@@ -458,6 +686,9 @@ export {
     getTaskById,
     assignTask,
     updateTaskStatus,
+    verifyTaskCompletion,
+    disputeTask,
+    overrideTaskCompletion,
     addCompletionNote,
     updateTask,
     deleteTask,

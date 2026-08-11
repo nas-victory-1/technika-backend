@@ -9,6 +9,9 @@ import {
     getTaskById,
     assignTask,
     updateTaskStatus,
+    verifyTaskCompletion,
+    disputeTask,
+    overrideTaskCompletion,
     addCompletionNote,
     updateTask,
     deleteTask,
@@ -41,6 +44,20 @@ router.put("/:id/assign", protect, authorize("admin"), assignTask);
 
 // Update task status (technician or admin)
 router.put("/:id/status", protect, updateTaskStatus);
+
+// Submit the customer's verification code to complete a task (technician, own task)
+router.put("/:id/verify", protect, verifyTaskCompletion);
+
+// Flag a task as disputed — couldn't get the code from the customer (technician, own task)
+router.put("/:id/dispute", protect, disputeTask);
+
+// Force-complete a disputed/stuck task, bypassing the code (admin only)
+router.put(
+    "/:id/override",
+    protect,
+    authorize("admin"),
+    overrideTaskCompletion,
+);
 
 // Add a completion note (technician or admin)
 router.put("/:id/note", protect, addCompletionNote);

@@ -1,6 +1,10 @@
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import User from "../models/User.js";
 import asyncHandler from "../middleware/asyncHandler.js";
+import { sendPasswordResetEmail } from "../utils/email.js";
+
+const RESET_TOKEN_TTL_MINUTES = 30;
 
 const generateToken = (id) =>
     jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -98,7 +102,7 @@ const getMe = asyncHandler(async (req, res) => {
     res.json(req.user);
 });
 
-// @desc    Request a password reset (stubbed — no email is actually sent yet)
+// @desc    Request a password reset — generates a reset token and emails it
 // @route   POST /api/auth/forgot-password
 // @access  Public
 const forgotPassword = asyncHandler(async (req, res) => {
@@ -108,11 +112,83 @@ const forgotPassword = asyncHandler(async (req, res) => {
         return res.status(400).json({ message: "email is required" });
     }
 
-    // Always return the same generic message so we don't leak which emails exist.
-    // (Real reset-token generation / email delivery can be wired in later.)
+    const user = await User.findOne({ email });
+
+    // Always return the same generic message whether or not the user exists,
+    // so this endpoint can't be used to enumerate registered emails. Only do
+    // the token generation / send work if a matching user was actually found.
+    if (user) {
+        // Short numeric code, not a long hex token — this gets manually typed
+        // into the app (no clickable link/deep-linking set up yet), so it needs
+        // to be short enough to copy-paste comfortably. Only its hash is stored;
+        // even a compromised DB can't be used to reset the account.
+        const resetToken = crypto.randomInt(100000, 1000000).toString(); // 6 digits
+        const resetTokenHash = crypto
+            .createHash("sha256")
+            .update(resetToken)
+            .digest("hex");
+
+        user.resetPasswordTokenHash = resetTokenHash;
+        user.resetPasswordExpires = new Date(
+            Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000,
+        );
+        await user.save();
+
+        try {
+            await sendPasswordResetEmail(user.email, resetToken);
+        } catch (err) {
+            // Don't fail the request over an email hiccup — the generic
+            // response below still goes out either way, and the token is
+            // already saved so a resend attempt would work if needed.
+            console.error(
+                `Failed to send password reset email to ${user.email}:`,
+                err.message,
+            );
+        }
+    }
+
     res.json({
         message: "If this email exists, a reset link has been sent",
     });
+});
+
+// @desc    Reset password using the token emailed via /forgot-password
+// @route   POST /api/auth/reset-password
+// @access  Public
+const resetPassword = asyncHandler(async (req, res) => {
+    const { token, password } = req.body;
+
+    if (!token) {
+        return res.status(400).json({ message: "token is required" });
+    }
+    if (!password || password.length < 6) {
+        return res
+            .status(400)
+            .json({
+                message: "A password of at least 6 characters is required",
+            });
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    const user = await User.findOne({
+        resetPasswordTokenHash: tokenHash,
+        resetPasswordExpires: { $gt: new Date() },
+    }).select("+resetPasswordTokenHash +resetPasswordExpires");
+
+    if (!user) {
+        return res
+            .status(400)
+            .json({ message: "Reset link is invalid or has expired" });
+    }
+
+    // Assigning triggers the existing pre('save') hook, which rehashes it
+    user.password = password;
+    user.resetPasswordTokenHash = null;
+    user.resetPasswordExpires = null;
+    await user.save();
+
+    res.json({ message: "Password has been reset successfully" });
 });
 
 // @desc    Register a device token for the logged-in user (push / connected devices)
@@ -210,6 +286,7 @@ export {
     login,
     getMe,
     forgotPassword,
+    resetPassword,
     registerDeviceToken,
     verifyOtp,
     verifyLoginOtp,

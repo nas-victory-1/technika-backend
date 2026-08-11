@@ -77,6 +77,21 @@ const userSchema = new mongoose.Schema(
             type: [String],
             default: [],
         },
+        // Password reset flow: a SHA-256 hash of the reset token (the plaintext
+        // token is emailed to the user and never stored), plus its expiry.
+        // Hashed with SHA-256 rather than bcrypt because this is looked up by
+        // exact match (findOne on the hash), not compared candidate-by-candidate
+        // like a password.
+        resetPasswordTokenHash: {
+            type: String,
+            default: null,
+            select: false,
+        },
+        resetPasswordExpires: {
+            type: Date,
+            default: null,
+            select: false,
+        },
     },
     { timestamps: true },
 );
