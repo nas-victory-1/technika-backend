@@ -3,7 +3,7 @@ import User from "../models/User.js";
 import asyncHandler from "../middleware/asyncHandler.js";
 import { createNotification } from "./notificationController.js";
 import crypto from "crypto";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { sendVerificationCode } from "../utils/email.js";
 
 // Fields populated for user references on tasks (never expose `name` — model uses firstName/lastName)
