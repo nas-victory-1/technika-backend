@@ -1,6 +1,49 @@
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 
+// ---------------------------------------------------------------------------
+// Message normalisation
+// The mobile app sends messages where content is either a plain string (text
+// only) or an array of typed parts using our internal schema:
+//   { type: "text",         content: "..." }
+//   { type: "image_base64", data: "...", mimeType: "image/jpeg" }
+//
+// Each provider needs a different wire format, so we normalise per-provider.
+// Plain string content is passed through unchanged — both APIs accept it.
+// ---------------------------------------------------------------------------
+
+function toOpenAIContent(content) {
+    if (typeof content === "string") return content;
+    return content.map((part) => {
+        if (part.type === "text") {
+            return { type: "text", text: part.content };
+        }
+        return {
+            type: "image_url",
+            image_url: { url: `data:${part.mimeType};base64,${part.data}` },
+        };
+    });
+}
+
+function toClaudeContent(content) {
+    if (typeof content === "string") return content;
+    return content.map((part) => {
+        if (part.type === "text") {
+            return { type: "text", text: part.content };
+        }
+        return {
+            type: "image",
+            source: { type: "base64", media_type: part.mimeType, data: part.data },
+        };
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Provider implementations
+// Each provider exposes call(systemPrompt, messages) and returns a plain
+// string. Throw on any failure so the runner falls through to the next.
+// ---------------------------------------------------------------------------
+
 const openaiProvider = {
     name: "openai",
     _client: null,
@@ -10,9 +53,13 @@ const openaiProvider = {
         return this._client;
     },
     async call(systemPrompt, messages) {
+        const normalised = messages.map((m) => ({
+            role: m.role,
+            content: toOpenAIContent(m.content),
+        }));
         const response = await this.client().chat.completions.create({
             model: "gpt-4o-mini",
-            messages: [{ role: "system", content: systemPrompt }, ...messages],
+            messages: [{ role: "system", content: systemPrompt }, ...normalised],
             max_tokens: 1024,
         });
         return response.choices[0].message.content.trim();
@@ -30,18 +77,27 @@ const claudeProvider = {
         return this._client;
     },
     async call(systemPrompt, messages) {
+        const normalised = messages.map((m) => ({
+            role: m.role,
+            content: toClaudeContent(m.content),
+        }));
         const response = await this.client().messages.create({
             model: "claude-haiku-4-5-20251001",
             max_tokens: 1024,
             system: systemPrompt,
-            messages,
+            messages: normalised,
         });
         return response.content[0].text.trim();
     },
 };
 
+// Order controls priority: index 0 is primary, rest are fallbacks.
 const PROVIDERS = [openaiProvider, claudeProvider];
 
+
+// ---------------------------------------------------------------------------
+// System prompt builder
+// ---------------------------------------------------------------------------
 
 function buildSystemPrompt(context = {}, documents = []) {
     const { technicianName = "Technician", task } = context;
@@ -80,6 +136,12 @@ ${taskSection}${ragSection}
 Keep responses concise and practical. The technician is in the field and needs direct, actionable guidance.`;
 }
 
+// ---------------------------------------------------------------------------
+// Public interface
+// messages: { role: "user"|"assistant", content: string | Part[] }[]
+// context:  { technicianName, task }
+// documents: string[] — RAG chunks, unused until RAG is implemented
+// ---------------------------------------------------------------------------
 
 async function chat_with_llm(messages, context = {}, documents = []) {
     const systemPrompt = buildSystemPrompt(context, documents);
@@ -98,7 +160,6 @@ async function chat_with_llm(messages, context = {}, documents = []) {
         }
     }
 
-    // All providers exhausted
     const error = new Error("All AI providers failed. Please try again later.");
     error.statusCode = 503;
     throw error;

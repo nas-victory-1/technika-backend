@@ -16,7 +16,7 @@ const app = express();
 
 app.set("trust proxy", 1);
 
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "5mb" }));
 // Comma-separated extra origins (e.g. Vercel preview URLs) can be added
 // via env without touching code: CORS_EXTRA_ORIGINS="https://foo.vercel.app,https://bar.com"
 const allowedOrigins = [

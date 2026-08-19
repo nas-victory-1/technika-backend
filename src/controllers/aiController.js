@@ -14,17 +14,28 @@ const aiChat = asyncHandler(async (req, res) => {
             .json({ message: "messages array is required and must not be empty" });
     }
 
-    // Validate message shape — each entry must have role + content
-    const valid = messages.every(
-        (m) =>
-            (m.role === "user" || m.role === "assistant") &&
-            typeof m.content === "string" &&
-            m.content.trim().length > 0,
-    );
+    // Validate message shape — content can be a plain string or a multipart
+    // array (text + image_base64 parts) for multimodal messages.
+    const valid = messages.every((m) => {
+        if (m.role !== "user" && m.role !== "assistant") return false;
+        if (typeof m.content === "string") return m.content.trim().length > 0;
+        if (Array.isArray(m.content) && m.content.length > 0) {
+            return m.content.every(
+                (part) =>
+                    (part.type === "text" &&
+                        typeof part.content === "string" &&
+                        part.content.trim().length > 0) ||
+                    (part.type === "image_base64" &&
+                        typeof part.data === "string" &&
+                        part.data.length > 0),
+            );
+        }
+        return false;
+    });
     if (!valid) {
         return res.status(400).json({
             message:
-                'Each message must have role ("user" or "assistant") and a non-empty content string',
+                'Each message must have role ("user" or "assistant") and content as a non-empty string or a non-empty array of text/image parts',
         });
     }
 
