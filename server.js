@@ -10,6 +10,7 @@ import customerRoutes from "./src/routes/customerRoutes.js";
 import taskRoutes from "./src/routes/taskRoutes.js";
 import notificationRoutes from "./src/routes/notificationRoutes.js";
 import chatRoutes from "./src/routes/chatRoutes.js";
+import aiRoutes from "./src/routes/aiRoutes.js";
 
 const app = express();
 
@@ -63,6 +64,7 @@ app.use("/api/customers", apiLimiter, customerRoutes);
 app.use("/api/tasks", apiLimiter, taskRoutes);
 app.use("/api/notifications", apiLimiter, notificationRoutes);
 app.use("/api/chats", apiLimiter, chatRoutes);
+app.use("/api/ai", aiRoutes);
 
 // Health check
 app.get("/health", (req, res) => res.json({ status: "ok" }));
